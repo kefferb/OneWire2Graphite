@@ -1,0 +1,78 @@
+// This #include statement was automatically added by the Spark IDE.
+#include "OneWire/OneWire.h"
+
+// This #include statement was automatically added by the Spark IDE.
+#include "spark-dallas-temperature/spark-dallas-temperature.h"
+
+
+// Init Dallas on pin digital pin 3
+DallasTemperature dallas(new OneWire(D0));
+// Graphite server IP
+IPAddress graphite = { 192, 168, 1, 11 }; 
+// Graphits prefix for metric names (.deviceaddress appended)
+char prefix[] = "home.temp";
+
+TCPClient client;
+
+void setup() {
+    Serial.begin(57200);
+    // Wait a little while for the network to be available
+    delay(10000);
+    while(!WiFi.ready()) { Serial.println("Waiting for wifi..."); Spark.process();}
+    Serial.print("Net Available...");
+    Serial.println(WiFi.localIP());
+    // Turn of LED
+    RGB.control(true);
+    RGB.color(255, 0,0); // Set LED to RED
+}
+
+void loop() {
+    uint8_t  dev_count; 
+    uint8_t  dev_addr[8];
+    byte     dc,i;
+    float    temperature;
+    char     metric[63];
+    RGB.brightness(0);  // Turn off LED  
+    dallas.begin();
+
+    dev_count = dallas.getDeviceCount();
+    Serial.print("Devices: ");
+    Serial.println(dev_count);
+    for(dc = 0 ;dc < dev_count; dc++){
+      Serial.print(" Dev: ");  
+      Serial.print(dc);
+      
+      dallas.requestTemperatures();
+
+      temperature = dallas.getTempFByIndex( dc );
+
+      if( dallas.getAddress(dev_addr,dc ) ){
+        Serial.print(" [");  
+        for( i = 0; i< 8;i++){
+          Serial.write(' ');
+          Serial.print(dev_addr[i],HEX);
+        }
+        Serial.print("] ");  
+        Serial.print(" Temp: ");
+        Serial.print(temperature) ;
+      
+        Serial.print(" Sending... ");  
+        sprintf(metric,"%s.%02x%02x%02x%02x %f %i",prefix,dev_addr[0],dev_addr[1],dev_addr[2],dev_addr[3],temperature,Time.now());  
+        Serial.print(metric);
+        
+        if(client.connect(graphite, 2003)){
+            client.print(metric);
+            client.print("\n");
+            client.flush();
+            client.stop();
+            Serial.println(" sent.");
+        }else{
+            Serial.println(" failed!");
+            RGB.brightness(128);  // Blink the RED LED on transmission errors
+            delay(1000);
+        }
+      }
+    }
+
+    delay(30000);  // Send metrics every ~ 30 seconds
+}
